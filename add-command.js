@@ -2,7 +2,7 @@ require('shelljs/global');
 
 var argv = require('minimist')(process.argv.slice(2));
 var path = require('path');
-var fs = require('fs-extra');
+var fs = require('fs');
 var packageJson = require(path.join(__dirname, 'package.json'));
 
 // command prototype regex
