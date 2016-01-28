@@ -21,6 +21,7 @@
   },
   "homepage": "https://github.com/fatihky/redis-add-command#readme",
   "dependencies": {
+    "async": "^1.5.2",
     "minimist": "^1.2.0",
     "shelljs": "^0.5.3"
   }

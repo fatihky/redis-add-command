@@ -10,7 +10,7 @@ Using:
   7. Install dependencies with `npm install`.
   8. Run this command: `node add-command.js "../my custom command"`
 
-Complete! Your custom redis build is ready to use! Your newly built redis is
+Completed! Your custom redis build is ready to use! Your newly built redis is
 placed at`build/redis`.
 
 Your custom commands should be in this type: `void myPingCommand(client *c)`.

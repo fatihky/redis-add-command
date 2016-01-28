@@ -3,15 +3,19 @@ require('shelljs/global');
 var argv = require('minimist')(process.argv.slice(2));
 var path = require('path');
 var fs = require('fs');
+var async = require('async');
 var packageJson = require(path.join(__dirname, 'package.json'));
 
 // command prototype regex
 // example: {"customping",customPingCommand,4,"r",0,NULL,1,1,1,0,0}
 var CMD_PROTO_REGEX = /^{"(\w+)",(\w+),(\d+),"(\w+)",0,NULL,1,1,1,0,0}$/;
+var REDIS_ARCHIVE_URL = 'https://github.com/antirez/redis/archive/unstable.zip';
 
 var buildDir = path.join(__dirname, 'build');
 var redisPath = path.join(buildDir, 'redis');
 var redisSrcPath = path.join(redisPath, 'src');
+var redisArchivePath = path.join(buildDir, 'unstable.zip');
+var redisUnzippedPath = path.join(buildDir, 'redis-unstable');
 
 var commandDirs = [];
 var filesToCopy = [];
@@ -19,66 +23,140 @@ var commandNames = [];
 var commandDefinitions = [];
 var objectFiles = []; // *.o
 var indent = '    '; // redis' indentation, 4 bytes
-var force = false;
 
-console.dir(argv);
+// redis' own object files.
+var redisServerObjectFiles = [];
 
-// check force option. if this option not passed, build dir will not be deleted
-// automatically
+async.series([
+  function prepareAsync(done) {
+    // set object files etc
+    prepare();
 
-if (typeof argv.force === 'string') {
-  argv._.push(argv.force);
-  argv.force = true;
-  force = true;
-}
+    done();
+  }, function createAndEnterToBuildDir(done) {
+    // create and enter the build dir
+    cd(__dirname);
 
-if (typeof argv.f === 'string') {
-  argv._.push(argv.f);
-  argv.f = true;
-  force = true;
-}
+    if (!fs.existsSync(buildDir))
+      mkdir('-p', 'build');
 
-if (argv._.length === 0) {
-  usage();
-  process.exit(0);
-}
+    cd('build');
 
-force = force || argv.force === true || argv.f === true;
+    done();
+  }, function cloneRedis(done) {
+    // clone redis
+    if (fs.existsSync(redisSrcPath))
+      return done();
 
-if (fs.existsSync(buildDir) && !force) {
-  console.log('build directory already exist. Use --force or -f to continue.');
-  process.exit(1);
-}
+    exec('git clone https://github.com/antirez/redis', {silent: true}, done);
+  }, function downloadRedisArchive(done) {
+    var curr = process.cwd();
 
-// set object files etc
-prepare();
+    if (fs.existsSync(redisArchivePath))
+      return done();
 
-// create and enter the build dir
-cd(__dirname);
-rm('-rf', 'build');
-mkdir('-p', 'build');
-cd('build');
+    cd(buildDir);
+    exec('wget ' + REDIS_ARCHIVE_URL, {silen: true}, function (code) {
+      if (code !== 0)
+        return done(code);
 
-// clone redis
-exec('git clone https://github.com/antirez/redis', function () {
-  copyFiles();
-  insertCommandPrototypes();
-  insertCommands();
-  insertObjectPaths();
+      cd(curr);
+      done();
+    })
+  }, function unzipRedis(done) {
+    var curr = process.cwd();
 
-  // build redis
-  cd(buildDir);
-  cd("redis");
+    if (fs.existsSync(redisUnzippedPath))
+      return done();
 
-  exec('make', function() {
-    console.log('\n\nComplete. You can use your custom redis build now!');
+    cd(buildDir);
+    exec('unzip -q ' + redisArchivePath, {silent: true}, function (code) {
+      if (code !== 0)
+        return done(code);
+
+      cd(curr);
+
+      done();
+    });
+  }, function setServerObjectFiles(done) {
+    var makefile = path.join(redisUnzippedPath, 'src', 'Makefile');
+    var contents = fs.readFileSync(makefile).toString();
+    redisServerObjectFiles = /REDIS_SERVER_OBJ=(.*)/
+                             .exec(contents)[1]
+                             .split(' ');
+    redisServerObjectFiles.push('redis-benchmark.o', 'redis-check-aof.o',
+                                'redis-cli.o');
+    done();
+  }, function resetRedisSrcPath(done) {
+    var curr = process.cwd();
+    cd(buildDir);
+    async.series([
+      function (done) {
+        var objects = ls('redis/src/*.o');
+        var sources = ls('redis/src/*.c');
+
+        // do not remove redis' core object files(anet.o adlist.o etc...)
+        // so we will not have to compile them again
+        redisServerObjectFiles.forEach(function(file, i) {
+          var sourceFile = 'redis/src/' +
+                           file.substr(0, file.indexOf('.o')) + '.c';
+          var index = objects.indexOf('redis/src/' + file);
+          var sourcesIndex = sources.indexOf(sourceFile);
+
+          if (sourcesIndex >= 0)
+            sources.splice(sourcesIndex, 1);
+
+          if (index < 0)
+            return console.log(file, 'not found');
+
+          objects.splice(index, 1);
+        });
+
+        [
+          'redis/src/ae_epoll.c',
+          'redis/src/ae_evport.c',
+          'redis/src/ae_kqueue.c',
+          'redis/src/ae_select.c',
+        ].forEach(function(file, i) {
+          var index = sources.indexOf(file);
+          sources.splice(index, 1);
+        });
+
+        console.log('rm -rf ' + sources.join(' ') + ' ' + objects.join(' '));
+        exec('rm -rf ' + sources.join(' ') + ' ' + objects.join(' '), {silent: true}, done);
+      },
+      function (done) {
+        // exec('cp redis-unstable/src/*.c redis/src', {silent: true}, done);
+        done();
+      }
+    ], function(err) {
+      cd(curr);
+      done(err);
+    });
+  }, function prepareBeforeBuild (done) {
+    copyFiles();
+    insertCommandPrototypes();
+    insertCommands();
+    insertObjectPaths();
+
+    // build redis
+    cd(buildDir);
+    cd("redis");
+
+    done();
+  }, function buildRedis(done) {
+    exec('make', {silent: false}, done);
+  }], function (err) {
+    if (err)
+      throw new Error(err);
+
+    console.log('Completed. You can use your custom redis build now!');
   });
-});
 
 function usage() {
   console.log('redis-add-command.js v' + packageJson.version);
   console.log('Usage:');
-  console.log('node redis-add-command.js [--force|-f] [dirname ...]');
+  console.log('node redis-add-command.js [dirname ...]');
 }
 
 function prepare(argument) {
