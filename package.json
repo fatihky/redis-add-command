@@ -1,0 +1,27 @@
+{
+  "name": "redis-add-command",
+  "version": "0.0.1",
+  "description": "Easily add new commands to redis in c",
+  "main": "add-command.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/fatihky/redis-add-command.git"
+  },
+  "keywords": [
+    "redis",
+    "c"
+  ],
+  "author": "Fatih Kaya 1994274@gmail.com",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/fatihky/redis-add-command/issues"
+  },
+  "homepage": "https://github.com/fatihky/redis-add-command#readme",
+  "dependencies": {
+    "minimist": "^1.2.0",
+    "shelljs": "^0.5.3"
+  }
+}
