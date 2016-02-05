@@ -8,7 +8,7 @@ var packageJson = require(path.join(__dirname, 'package.json'));
 
 // command prototype regex
 // example: {"customping",customPingCommand,4,"r",0,NULL,1,1,1,0,0}
-var CMD_PROTO_REGEX = /^{"(\w+)",(\w+),(\d+),"(\w+)",0,NULL,1,1,1,0,0}$/;
+var CMD_PROTO_REGEX = /^{"(\w+)",(\w+),(-?\d+),"(\w+)",\d+,NULL,-?\d+,-?\d+,-?\d+,-?\d+,-?\d+}$/;
 var REDIS_ARCHIVE_URL = 'https://github.com/antirez/redis/archive/unstable.zip';
 
 var buildDir = path.join(__dirname, 'build');
@@ -99,7 +99,7 @@ async.series([
         // so we will not have to compile them again
         redisServerObjectFiles.forEach(function(file, i) {
           var sourceFile = 'redis/src/' +
-                           file.substr(0, file.indexOf('.o')) + '.c';
+                            file.substr(0, file.indexOf('.o')) + '.c';
           var index = objects.indexOf('redis/src/' + file);
           var sourcesIndex = sources.indexOf(sourceFile);
 
@@ -181,9 +181,12 @@ function prepare(argument) {
       var arr = CMD_PROTO_REGEX.exec(command)
   
       // not valid command definition. continue
-      if (arr ===  null)
+      if (arr ===  null) {
+        console.log('This command definition is not valid. ' +
+                    'It will not be added to redis build:', command);
         return;
-  
+      }
+
       // second argument is function name
       // we will use it to adding command definition to server.h
       var commandName = arr[2];
@@ -214,6 +217,7 @@ function fileReplace(filePath, find, replace) {
 }
 
 function insertCommandPrototypes() {
+
   var str = '/* custom commands start */';
   var comment = '/* Commands prototypes */';
   var serverHeader = path.join(redisSrcPath, 'server.h');
@@ -223,18 +227,30 @@ function insertCommandPrototypes() {
     str += proto;
   });
 
-  str += '/* custom commands start */';
+  str += '/* custom commands end */';
 
   fileReplace(serverHeader, comment, comment + '\n' + str);
 }
 
 function insertCommands() {
+  var comment_start = '/* custom commands start */';
+  var comment_end = '/* custom commands end */';
   var start = 'struct redisCommand redisCommandTable[] = {';
   var serverSource = path.join(redisSrcPath, 'server.c');
-  var str = '/* custom commands start */\n' + indent;
+  var str = comment_start + '\n' + indent;
+  var contents = fs.readFileSync(serverSource).toString();
 
   str += commandDefinitions.join(',\n' + indent) + ',\n' + indent;
-  str += '/* custom commands end */';
+  str += comment_end;
+
+  if (contents.indexOf(comment_start) >= 0 &&
+      contents.indexOf(comment_end) >= 0) {
+    var strToDelete = '\n' + indent;
+    strToDelete += contents.substring(contents.indexOf(comment_start),
+                                      contents.indexOf(comment_end));
+    strToDelete += comment_end;
+    fileReplace(serverSource, strToDelete, '');
+  }
 
   fileReplace(serverSource, start, start + '\n' + indent + str);
 }
